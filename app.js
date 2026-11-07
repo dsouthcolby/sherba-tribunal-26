@@ -44,9 +44,23 @@ function untilText(from, to){
 }
 const TRIP_OVER = () => tripNow() >= STOPS[STOPS.length-1].stop;
 
+/* Invite link: <site address>#join=CODE fills in the group code so friends only type their name.
+   The code is kept on this device until they join, then forgotten. The hash part of a link is never sent to the web server. */
+const INVITE_KEY = "sherba-invite";
+function store(fn){ try{ return fn(localStorage); }catch(e){ return null; } }
+function readInvite(){
+  const m = location.hash.match(/(?:^#|&)join=([^&]+)/);
+  if(m){
+    const code = decodeURIComponent(m[1]).trim();
+    if(code) store(ls=>ls.setItem(INVITE_KEY, code));
+    history.replaceState(null, "", location.pathname + location.search); // hide the code from the address bar
+  }
+  return store(ls=>ls.getItem(INVITE_KEY)) || "";
+}
+
 const S = {
   sb:null, session:null, me:null, phase:"loading", authMode:"signup",
-  members:{}, topics:[], results:{}, links:[], linksState:"idle", tab: TRIP_OVER() ? "open" : "plan", rankDraft:{}, editing:{}, confirm:null, busy:false,
+  members:{}, topics:[], results:{}, links:[], linksState:"idle", tab: TRIP_OVER() ? "open" : "plan", invite:"", showCode:false, rankDraft:{}, editing:{}, confirm:null, busy:false,
   draft:{title:"", type:"rank", options:["",""], anonTopic:false, anonVotes:true}
 };
 const $ = s => document.querySelector(s);
@@ -152,6 +166,7 @@ function paint(){
     const up = S.authMode==="signup";
     main.innerHTML = `<form class="card" id="signin">
       <h2>${up?"Create your account":"Sign in to the Tribunal"}</h2>
+      ${S.invite?`<p class="hint">You've been invited to the Sherba Tribunal. Make an account (or sign in), then just add your name.</p>`:""}
       <p class="sub">${up?"First time here? Pick any email and a password of at least 8 characters. Nothing is emailed to you.":"Use the email and password you signed up with."}</p>
       <label class="f" for="email">Email<input type="email" id="email" required autocomplete="email" placeholder="you@example.com"></label>
       <label class="f" for="password">Password<input type="password" id="password" required minlength="${up?8:1}" autocomplete="${up?"new-password":"current-password"}"></label>
@@ -181,13 +196,20 @@ function paint(){
   }
 
   if(S.phase==="join"){
-    main.innerHTML = `<form class="card" id="join"><h2>Join the Sherba Tribunal</h2><p class="sub">Enter the group code and the name the rest of Sherba will see.</p>
-      <label class="f" for="code">Group code<input type="text" id="code" required autocomplete="off" autocapitalize="off"></label>
+    const fromLink = !!S.invite && !S.showCode;
+    main.innerHTML = `<form class="card" id="join"><h2>Join the Sherba Tribunal</h2><p class="sub">${fromLink?"Your invite link has the group code in it. Just add the name the rest of Sherba will see.":"Enter the group code and the name the rest of Sherba will see."}</p>
+      ${fromLink?`<p class="hint">Group code included. <button type="button" class="btn ghost" id="typecode" style="padding:4px 10px;font-size:.8rem">Type it instead</button></p>`
+        :`<label class="f" for="code">Group code<input type="text" id="code" required autocomplete="off" autocapitalize="off" value="${esc(S.invite)}"></label>`}
       <label class="f" for="nick">Your name<input type="text" id="nick" maxlength="24" required placeholder="e.g. Danielle"></label>
       <div class="row"><button class="btn" type="submit">Join</button></div></form>`;
+    const tc=$("#typecode"); if(tc) tc.onclick=()=>{ const n=$("#nick").value; S.showCode=true; paint(); $("#nick").value=n; $("#code").focus(); };
     $("#join").onsubmit = async e => { e.preventDefault();
-      try{ await rpc("join_group",{p_code:$("#code").value, p_nick:$("#nick").value.trim()}); S.phase="app"; await loadAll(); }
-      catch(err){ toast(errText(err)); } };
+      const code = fromLink ? S.invite : $("#code").value;
+      try{ await rpc("join_group",{p_code:code, p_nick:$("#nick").value.trim()});
+        store(ls=>ls.removeItem(INVITE_KEY)); S.invite=""; S.phase="app"; await loadAll(); }
+      catch(err){
+        if(fromLink){ const n=$("#nick").value; S.showCode=true; paint(); $("#nick").value=n; toast("The code in that invite link didn't work. Ask for the current code and type it in."); }
+        else toast(errText(err)); } };
     return;
   }
 
@@ -390,6 +412,7 @@ $("#main").addEventListener("click", e=>{
 
 /* ---------- boot ---------- */
 if(!CFG.supabaseUrl || /YOUR-PROJECT/.test(CFG.supabaseUrl) || !window.supabase){ paint(); return; }
+S.invite = readInvite();
 S.sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
 S.sb.auth.onAuthStateChange((_evt, session) => {
   const id = session ? session.user.id : null;
