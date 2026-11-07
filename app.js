@@ -238,26 +238,39 @@ function paint(){
   if(S.tab==="links") wireLinks(keep);
 }
 
+/* Bagel garland drawn for this page, after the printed itinerary's header. */
+const GARLAND = (() => {
+  const pts=[[48,46,-18],[98,66,-8],[150,78,4],[202,80,-4],[254,70,10],[302,50,18]];
+  const seeds=[[0,-17],[13,-11],[17,3],[9,15],[-6,17],[-16,7],[-15,-8],[-5,-18]];
+  const b=pts.map(([x,y,r],i)=>`<g transform="translate(${x} ${y}) rotate(${r})">
+    <circle r="25" fill="${i%2?"#E58A3A":"#F2A93B"}"/><circle r="25" fill="none" stroke="#C9732A" stroke-opacity=".35" stroke-width="2"/>
+    <circle r="9.5" fill="#F6ECD9"/><circle r="9.5" fill="none" stroke="#C9732A" stroke-opacity=".45" stroke-width="2.5"/>
+    <path d="M-15 -14 A20 20 0 0 1 4 -21" stroke="#FFF3D6" stroke-width="3" stroke-linecap="round" fill="none" opacity=".8"/>
+    ${seeds.map(([sx,sy])=>`<ellipse cx="${sx}" cy="${sy}" rx="1.6" ry="2.4" fill="#7A3E22" transform="rotate(${sx*3} ${sx} ${sy})"/>`).join("")}</g>`).join("");
+  return `<svg viewBox="0 0 350 112" aria-hidden="true"><path d="M8 6 Q 30 40 48 46 Q 150 104 302 50 Q 326 40 342 6" fill="none" stroke="#C8374A" stroke-width="2.5"/>${b}</svg>`;
+})();
+
 function planUI(){
   const now = tripNow();
   const cur = STOPS.find(x => x.start <= now && now < x.stop);
   const nxt = STOPS.find(x => x.start > now);
-  let top;
-  if(now < STOPS[0].start) top = `<div class="card"><h2>Starts ${esc(STOPS[0].day)} at ${fmtTime(STOPS[0].t)}</h2><p class="sub">First stop: ${esc(STOPS[0].what)}.</p></div>`;
-  else if(!nxt && !cur) top = `<div class="card"><h2>That's a wrap</h2><p class="sub">The weekend is over. Merci, Montréal.</p></div>`;
-  else top = `<div class="card nownext">
-      <div><p class="lab">Now</p><p class="big">${cur?esc(cur.what):"Free time"}</p><p class="sm">${cur?`until ${fmtTime(cur.stop.slice(11))}`:"Nothing scheduled"}</p></div>
-      <div><p class="lab">Next</p><p class="big">${nxt?esc(nxt.what):"Nothing after this"}</p><p class="sm">${nxt?`${nxt.date!==now.slice(0,10)?esc(nxt.day)+" ":""}${fmtTime(nxt.t)} · ${untilText(now, nxt.start)}`:""}</p></div>
+  let nn;
+  if(now < STOPS[0].start) nn = `<div class="nn solo"><div><p class="lab">On commence</p><p class="big">${esc(STOPS[0].day)}, ${fmtTime(STOPS[0].t)}</p><p class="sm">${esc(STOPS[0].what)}</p></div></div>`;
+  else if(!nxt && !cur) nn = `<div class="nn solo"><div><p class="lab">C'est fini</p><p class="big">Merci, Montréal!</p></div></div>`;
+  else nn = `<div class="nn">
+      <div><p class="lab">En ce moment</p><p class="big">${cur?esc(cur.what):"Free time"}</p><p class="sm">${cur?`until ${fmtTime(cur.stop.slice(11))}`:"Nothing scheduled"}</p></div>
+      <div><p class="lab">Ensuite</p><p class="big">${nxt?esc(nxt.what):"Nothing after this"}</p><p class="sm">${nxt?`${nxt.date!==now.slice(0,10)?esc(nxt.day)+" ":""}${fmtTime(nxt.t)} · ${untilText(now, nxt.start)}`:""}</p></div>
     </div>`;
   const days = TRIP.map(d => {
     const rows = STOPS.filter(x=>x.date===d.date).map(x => {
       const st = x===cur ? "now" : x===nxt ? "next" : x.stop <= now ? "done" : "";
       return `<li class="${st}"${st==="now"?' aria-current="true"':""}><span class="tm">${fmtTime(x.t)}</span><span class="what">${esc(x.what)}${st==="now"?'<span class="tag">Now</span>':st==="next"?'<span class="tag nx">Next</span>':""}</span>${x.det?`<span class="det">${esc(x.det)}</span>`:""}</li>`;
     }).join("");
-    const label = new Date(d.date+"T12:00:00Z").toLocaleDateString("en-CA",{month:"short", day:"numeric", timeZone:"UTC"});
-    return `<section class="card day"><h2>${esc(d.name)} <small>${esc(label)}</small></h2><ol class="sched">${rows}</ol></section>`;
+    return `<h3 class="day">${esc(d.name)}</h3><ol>${rows}</ol>`;
   }).join("");
-  return top + days + `<p class="hint" style="text-align:center">Montréal time. Updates on its own.</p>`;
+  return `<section class="poster"><div class="in">${GARLAND}
+    <h2 class="pt">Bienvenue à Montréal!</h2><p class="ps">Notre itinéraire pour le weekend</p><hr class="rule">
+    ${nn}${days}<p class="foot2">Heure de Montréal · updates on its own</p></div></section>`;
 }
 
 function linksUI(){
