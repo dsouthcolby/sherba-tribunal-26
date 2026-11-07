@@ -44,8 +44,9 @@ h1 span{font-style:italic;font-weight:500}
 .crew .av{margin-left:-6px;border:2px solid var(--brand)}
 .crew .more{font-size:.75rem;color:var(--on-brand);opacity:.9;margin-left:6px;font-variant-numeric:tabular-nums}
 .av{width:28px;height:28px;border-radius:50%;display:inline-grid;place-items:center;font-size:.72rem;font-weight:700;color:#fff;flex:none}
-nav{display:flex;gap:4px;margin-top:12px}
-nav button{flex:1;background:none;border:0;border-bottom:3px solid transparent;padding:10px 4px;font:600 .9rem var(--body);color:var(--on-brand);opacity:.72;cursor:pointer}
+nav{display:flex;gap:2px;margin-top:12px;overflow-x:auto;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+nav button{flex:1 0 auto;white-space:nowrap;background:none;border:0;border-bottom:3px solid transparent;padding:10px 4px;font:600 .9rem var(--body);color:var(--on-brand);opacity:.72;cursor:pointer}
 nav button[aria-selected="true"]{opacity:1;border-bottom-color:var(--on-brand)}
 nav .n{font-variant-numeric:tabular-nums;font-weight:500;opacity:.8}
 main{display:flex;flex-direction:column;gap:14px;padding-top:18px}
@@ -109,6 +110,34 @@ header:has(nav[hidden]){padding-bottom:16px}
 .signout{background:none;border:1.5px solid rgba(255,255,255,.55);color:var(--on-brand);font:600 .78rem var(--body);padding:5px 10px;border-radius:8px;cursor:pointer}
 .signout:focus-visible{outline:3px solid var(--on-brand);outline-offset:2px}
 .right{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+/* Plan (trip schedule) and Links tabs */
+.day h2{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.day h2 small{font-family:var(--body);font-size:.8rem;font-weight:600;color:var(--muted)}
+.sched{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.sched li{display:grid;grid-template-columns:4.6em 1fr;gap:4px 12px;padding:10px 8px;border-top:1px solid var(--line);border-radius:8px}
+.sched li:first-child{border-top:0}
+.sched .tm{font-weight:700;font-variant-numeric:tabular-nums;font-size:.9rem}
+.sched .what{font-weight:600;overflow-wrap:anywhere}
+.sched .det{grid-column:2;font-size:.8rem;color:var(--muted)}
+.sched li.done{opacity:.5}
+.sched li.now{background:var(--accent-soft);border-top-color:transparent}
+.sched li.now + li{border-top-color:transparent}
+.sched .tag{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;vertical-align:2px;background:var(--accent);color:var(--on-brand)}
+.sched .tag.nx{background:var(--ink);color:var(--bg)}
+.nownext{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.nownext div{min-width:0}
+.nownext .lab{font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0}
+.nownext .big{font-family:var(--display);font-weight:600;font-size:1.15rem;line-height:1.2;margin:2px 0 0;overflow-wrap:anywhere}
+.nownext .sm{font-size:.8rem;color:var(--muted);margin:2px 0 0;font-variant-numeric:tabular-nums}
+.links{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.links li{display:flex;gap:10px;align-items:flex-start;padding-top:10px;border-top:1px solid var(--line)}
+.links li:first-child{border-top:0;padding-top:0}
+.links .body{flex:1;min-width:0}
+.links a{color:var(--accent);font-weight:700;overflow-wrap:anywhere;text-underline-offset:2px}
+.links .host,.links .by{font-size:.78rem;color:var(--muted);margin:0;overflow-wrap:anywhere}
+.links .nt{font-size:.88rem;margin:2px 0 0;overflow-wrap:anywhere}
+
+
 div.f{display:flex;flex-direction:column;gap:6px;font-size:.82rem;font-weight:600;color:var(--muted)}
 </style>
 </head>
@@ -120,9 +149,11 @@ div.f{display:flex;flex-direction:column;gap:6px;font-size:.82rem;font-weight:60
       <div class="right"><div class="crew" id="crew" aria-label="Who has joined"></div><button class="signout" id="signout" hidden>Sign out</button></div>
     </div>
     <nav role="tablist" hidden>
+      <button role="tab" id="tab-plan" aria-selected="false" data-tab="plan">Plan</button>
       <button role="tab" id="tab-open" aria-selected="true" data-tab="open">Open <span class="n" id="n-open"></span></button>
       <button role="tab" id="tab-closed" aria-selected="false" data-tab="closed">Verdicts <span class="n" id="n-closed"></span></button>
-      <button role="tab" id="tab-new" aria-selected="false" data-tab="new">New topic</button>
+      <button role="tab" id="tab-links" aria-selected="false" data-tab="links">Links <span class="n" id="n-links"></span></button>
+      <button role="tab" id="tab-new" aria-selected="false" data-tab="new">+ Topic</button>
     </nav>
   </header>
   <main id="main"><div class="empty"><h2>Loading the docket</h2></div></main>
