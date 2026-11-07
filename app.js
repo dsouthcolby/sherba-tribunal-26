@@ -6,9 +6,61 @@ const TYPES = {
   options:{label:"Custom options", hint:"You write the choices"},
   yesno:{label:"Yes or no", hint:"Quick poll"}
 };
+/* Montréal weekend, Nov 6 to 8, 2026. Times are Montréal wall-clock time.
+   From the printed itinerary; Bota Bota times from the booking (4-hour Escale, 2 to 6 PM). */
+const TRIP_TZ = "America/Toronto"; // Montréal shares Toronto's time zone
+const TRIP = [
+  {date:"2026-11-06", name:"Vendredi", items:[
+    {t:"14:30", what:"Café Magnolia Buvette et Brunch"},
+    {t:"16:00", what:"Check into Airbnb"},
+    {t:"17:00", what:"Dinner at Restaurant Coréen Luna"},
+    {t:"20:00", what:"Drinks or dancing somewhere"}]},
+  {date:"2026-11-07", name:"Samedi", items:[
+    {t:"09:00", what:"Bagel breakfast"},
+    {t:"10:00", what:"Walking tour of campus and ghetto"},
+    {t:"12:30", what:"Lunch near Old Port"},
+    {t:"14:00", end:"18:00", what:"Bota Bota", det:"4-hour Escale, 2 to 6 PM. Bring a swimsuit, sandals and a shatterproof water bottle. Bring photo ID; Danielle brings the card used to book. Phones stay in the lockers."},
+    {t:"18:00", what:"Back to Airbnb", det:"After Bota Bota ends at 6"},
+    {t:"20:00", what:"Dinner at ALIA"}]},
+  {date:"2026-11-08", name:"Dimanche", items:[
+    {t:"10:00", what:"Brunch at Caribou Gourmand"},
+    {t:"11:00", what:"Mont Royal walk"}]}
+];
+// Each stop runs until the next one starts; the last stop of a day gets 2 hours.
+const STOPS = TRIP.flatMap(d => d.items.map((it,i) => {
+  const next = d.items[i+1];
+  const [h,m] = it.t.split(":").map(Number), lastEnd = `${String(Math.min(h+2,23)).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+  return {...it, day:d.name, date:d.date, start:`${d.date} ${it.t}`, stop:`${d.date} ${it.end || (next ? next.t : lastEnd)}`};
+}));
+function tripNow(){
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:TRIP_TZ, year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23"}).formatToParts(new Date()).map(x=>[x.type,x.value]));
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
+}
+function fmtTime(hm){ let [h,m]=hm.split(":").map(Number); const ap=h<12?"AM":"PM"; h=h%12||12; return `${h}:${String(m).padStart(2,"0")} ${ap}`; }
+function untilText(from, to){
+  const mins = (Date.parse(to.replace(" ","T")+":00Z") - Date.parse(from.replace(" ","T")+":00Z"))/60000;
+  if(mins<60) return `in ${mins} min`;
+  const h=Math.floor(mins/60), m=mins%60; return `in ${h} h${m?` ${m} min`:""}`;
+}
+const TRIP_OVER = () => tripNow() >= STOPS[STOPS.length-1].stop;
+
+/* Invite link: <site address>#join=CODE fills in the group code so friends only type their name.
+   The code is kept on this device until they join, then forgotten. The hash part of a link is never sent to the web server. */
+const INVITE_KEY = "sherba-invite";
+function store(fn){ try{ return fn(localStorage); }catch(e){ return null; } }
+function readInvite(){
+  const m = location.hash.match(/(?:^#|&)join=([^&]+)/);
+  if(m){
+    const code = decodeURIComponent(m[1]).trim();
+    if(code) store(ls=>ls.setItem(INVITE_KEY, code));
+    history.replaceState(null, "", location.pathname + location.search); // hide the code from the address bar
+  }
+  return store(ls=>ls.getItem(INVITE_KEY)) || "";
+}
+
 const S = {
   sb:null, session:null, me:null, phase:"loading", authMode:"signup",
-  members:{}, topics:[], results:{}, tab:"open", rankDraft:{}, editing:{}, confirm:null, busy:false,
+  members:{}, topics:[], results:{}, links:[], linksState:"idle", tab: TRIP_OVER() ? "open" : "plan", invite:"", showCode:false, rankDraft:{}, editing:{}, confirm:null, busy:false,
   draft:{title:"", type:"rank", options:["",""], anonTopic:false, anonVotes:true}
 };
 const $ = s => document.querySelector(s);
@@ -35,6 +87,7 @@ async function loadAll(){
       }
     }
     S.phase = "app";
+    loadLinks();
   }catch(e){
     if(/Join the group first/.test(errText(e))) S.phase = "join";
     else toast(errText(e));
@@ -47,6 +100,24 @@ async function checkMembership(){
   S.phase = data ? "app" : "join";
   if(S.phase==="app") await loadAll(); else paint();
 }
+
+async function loadLinks(){
+  try{
+    const {data, error} = await S.sb.from("links").select("id,url,title,note,added_by,created_at").order("created_at",{ascending:false});
+    if(error) throw error;
+    S.links = data || []; S.linksState = "ok";
+  }catch(e){
+    S.linksState = /schema cache|does not exist|42P01|PGRST205/i.test(errText(e)+" "+(e&&e.code||"")) ? "missing" : "error";
+    S.linksErr = errText(e);
+  }
+  if(S.phase==="app") paint();
+}
+function cleanUrl(raw){
+  let u = String(raw||"").trim(); if(!u) return null;
+  if(!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = "https://" + u;
+  try{ const x = new URL(u); return /^https?:$/.test(x.protocol) && x.hostname.includes(".") ? x.href : null; }catch(e){ return null; }
+}
+function hostOf(u){ try{ return new URL(u).hostname.replace(/^www\./,""); }catch(e){ return ""; } }
 
 /* ---------- helpers ---------- */
 function memberIds(){ return Object.keys(S.members); }
@@ -95,6 +166,7 @@ function paint(){
     const up = S.authMode==="signup";
     main.innerHTML = `<form class="card" id="signin">
       <h2>${up?"Create your account":"Sign in to the Tribunal"}</h2>
+      ${S.invite?`<p class="hint">You've been invited to the Sherba Tribunal. Make an account (or sign in), then just add your name.</p>`:""}
       <p class="sub">${up?"First time here? Pick any email and a password of at least 8 characters. Nothing is emailed to you.":"Use the email and password you signed up with."}</p>
       <label class="f" for="email">Email<input type="email" id="email" required autocomplete="email" placeholder="you@example.com"></label>
       <label class="f" for="password">Password<input type="password" id="password" required minlength="${up?8:1}" autocomplete="${up?"new-password":"current-password"}"></label>
@@ -124,25 +196,35 @@ function paint(){
   }
 
   if(S.phase==="join"){
-    main.innerHTML = `<form class="card" id="join"><h2>Join the Sherba Tribunal</h2><p class="sub">Enter the group code and the name the rest of Sherba will see.</p>
-      <label class="f" for="code">Group code<input type="text" id="code" required autocomplete="off" autocapitalize="off"></label>
+    const fromLink = !!S.invite && !S.showCode;
+    main.innerHTML = `<form class="card" id="join"><h2>Join the Sherba Tribunal</h2><p class="sub">${fromLink?"Your invite link has the group code in it. Just add the name the rest of Sherba will see.":"Enter the group code and the name the rest of Sherba will see."}</p>
+      ${fromLink?`<p class="hint">Group code included. <button type="button" class="btn ghost" id="typecode" style="padding:4px 10px;font-size:.8rem">Type it instead</button></p>`
+        :`<label class="f" for="code">Group code<input type="text" id="code" required autocomplete="off" autocapitalize="off" value="${esc(S.invite)}"></label>`}
       <label class="f" for="nick">Your name<input type="text" id="nick" maxlength="24" required placeholder="e.g. Danielle"></label>
       <div class="row"><button class="btn" type="submit">Join</button></div></form>`;
+    const tc=$("#typecode"); if(tc) tc.onclick=()=>{ const n=$("#nick").value; S.showCode=true; paint(); $("#nick").value=n; $("#code").focus(); };
     $("#join").onsubmit = async e => { e.preventDefault();
-      try{ await rpc("join_group",{p_code:$("#code").value, p_nick:$("#nick").value.trim()}); S.phase="app"; await loadAll(); }
-      catch(err){ toast(errText(err)); } };
+      const code = fromLink ? S.invite : $("#code").value;
+      try{ await rpc("join_group",{p_code:code, p_nick:$("#nick").value.trim()});
+        store(ls=>ls.removeItem(INVITE_KEY)); S.invite=""; S.phase="app"; await loadAll(); }
+      catch(err){
+        if(fromLink){ const n=$("#nick").value; S.showCode=true; paint(); $("#nick").value=n; toast("The code in that invite link didn't work. Ask for the current code and type it in."); }
+        else toast(errText(err)); } };
     return;
   }
 
   const open = S.topics.filter(t=>t.status==="open"), closed = S.topics.filter(t=>t.status==="closed");
   $("#n-open").textContent = open.length || "";
   $("#n-closed").textContent = closed.length || "";
+  $("#n-links").textContent = S.links.length || "";
   document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-selected", String(b.dataset.tab===S.tab)));
   const mids = memberIds();
   $("#crew").innerHTML = mids.slice(0,6).map(id=>`<span class="av" style="background:${colorOf(id)}" title="${esc(nameOf(id))}">${esc(initials(nameOf(id)))}</span>`).join("") + (mids.length?`<span class="more">${mids.length} in</span>`:"");
 
   let html="";
   if(S.tab==="new") html = newForm();
+  else if(S.tab==="plan") html = planUI();
+  else if(S.tab==="links") html = linksUI();
   else {
     const list = S.tab==="open" ? open : closed;
     if(!list.length) html = S.tab==="open"
@@ -150,8 +232,69 @@ function paint(){
       : `<div class="card empty"><h2>No verdicts yet</h2><p>When someone closes a topic, the ruling is saved here for the rest of the trip.</p></div>`;
     else list.forEach(t=>html+=topicCard(t));
   }
+  const keep = S.tab==="links" ? {url:($("#l-url")||{}).value, title:($("#l-title")||{}).value, note:($("#l-note")||{}).value, focus:document.activeElement && document.activeElement.id} : null;
   main.innerHTML = html;
   if(S.tab==="new") wireForm();
+  if(S.tab==="links") wireLinks(keep);
+}
+
+function planUI(){
+  const now = tripNow();
+  const cur = STOPS.find(x => x.start <= now && now < x.stop);
+  const nxt = STOPS.find(x => x.start > now);
+  let top;
+  if(now < STOPS[0].start) top = `<div class="card"><h2>Starts ${esc(STOPS[0].day)} at ${fmtTime(STOPS[0].t)}</h2><p class="sub">First stop: ${esc(STOPS[0].what)}.</p></div>`;
+  else if(!nxt && !cur) top = `<div class="card"><h2>That's a wrap</h2><p class="sub">The weekend is over. Merci, Montréal.</p></div>`;
+  else top = `<div class="card nownext">
+      <div><p class="lab">Now</p><p class="big">${cur?esc(cur.what):"Free time"}</p><p class="sm">${cur?`until ${fmtTime(cur.stop.slice(11))}`:"Nothing scheduled"}</p></div>
+      <div><p class="lab">Next</p><p class="big">${nxt?esc(nxt.what):"Nothing after this"}</p><p class="sm">${nxt?`${nxt.date!==now.slice(0,10)?esc(nxt.day)+" ":""}${fmtTime(nxt.t)} · ${untilText(now, nxt.start)}`:""}</p></div>
+    </div>`;
+  const days = TRIP.map(d => {
+    const rows = STOPS.filter(x=>x.date===d.date).map(x => {
+      const st = x===cur ? "now" : x===nxt ? "next" : x.stop <= now ? "done" : "";
+      return `<li class="${st}"${st==="now"?' aria-current="true"':""}><span class="tm">${fmtTime(x.t)}</span><span class="what">${esc(x.what)}${st==="now"?'<span class="tag">Now</span>':st==="next"?'<span class="tag nx">Next</span>':""}</span>${x.det?`<span class="det">${esc(x.det)}</span>`:""}</li>`;
+    }).join("");
+    const label = new Date(d.date+"T12:00:00Z").toLocaleDateString("en-CA",{month:"short", day:"numeric", timeZone:"UTC"});
+    return `<section class="card day"><h2>${esc(d.name)} <small>${esc(label)}</small></h2><ol class="sched">${rows}</ol></section>`;
+  }).join("");
+  return top + days + `<p class="hint" style="text-align:center">Montréal time. Updates on its own.</p>`;
+}
+
+function linksUI(){
+  let list;
+  if(S.linksState==="missing") list = `<div class="note">The shared links list isn't switched on yet. Danielle needs to run <b>supabase/links.sql</b> once in the Supabase SQL editor.</div>`;
+  else if(S.linksState==="error") list = `<div class="note">Couldn't load links: ${esc(S.linksErr)}</div>`;
+  else if(S.linksState!=="ok") list = `<div class="empty"><h2>Loading links</h2></div>`;
+  else if(!S.links.length) list = `<div class="card empty"><h2>No links yet</h2><p>Add the first one: a reservation, a menu, a map pin, anything the group needs.</p></div>`;
+  else list = `<div class="card"><ul class="links">${S.links.map(l => {
+      const mine = l.added_by===S.me;
+      const del = mine ? (S.confirm==="link:"+l.id
+        ? `<div class="confirm" style="margin-top:6px">Remove? <button class="btn warn" data-act="link-del" data-id="${esc(l.id)}">Remove</button><button class="btn ghost" data-act="cancel">Keep</button></div>`
+        : `<button class="x" aria-label="Remove ${esc(l.title||hostOf(l.url))}" data-act="link-ask" data-id="${esc(l.id)}">✕</button>`) : "";
+      return `<li><div class="body"><a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.title || hostOf(l.url) || l.url)}</a>
+        ${l.title?`<p class="host">${esc(hostOf(l.url))}</p>`:""}${l.note?`<p class="nt">${esc(l.note)}</p>`:""}<p class="by">Added by ${esc(nameOf(l.added_by))}</p>${del.startsWith("<div")?del:""}</div>${del.startsWith("<button")?del:""}</li>`;
+    }).join("")}</ul></div>`;
+  const form = S.linksState==="ok" ? `<form class="card" id="linkf"><h2>Add a link</h2>
+      <label class="f" for="l-url">Link<input type="text" id="l-url" required inputmode="url" autocomplete="off" autocapitalize="off" placeholder="botabota.ca"></label>
+      <label class="f" for="l-title">Name (optional)<input type="text" id="l-title" maxlength="80" placeholder="e.g. Bota Bota booking"></label>
+      <label class="f" for="l-note">Note (optional)<input type="text" id="l-note" maxlength="200" placeholder="e.g. Bring the booking card"></label>
+      <div class="row"><button class="btn" type="submit" id="l-add">Add link</button></div>
+      <p class="hint">Everyone who has joined can see and add links. You can remove the ones you added.</p></form>` : "";
+  return form + list;
+}
+function wireLinks(keep){
+  const f=$("#linkf"); if(!f) return;
+  if(keep){ ["url","title","note"].forEach(k=>{ const el=$("#l-"+k); if(el && keep[k]) el.value=keep[k]; }); if(keep.focus && $("#"+keep.focus)) $("#"+keep.focus).focus(); }
+  f.onsubmit = async e => { e.preventDefault();
+    const url = cleanUrl($("#l-url").value);
+    if(!url){ toast("That doesn't look like a web link."); return; }
+    const title = $("#l-title").value.trim() || null, note = $("#l-note").value.trim() || null;
+    if(S.busy) return; S.busy=true; $("#l-add").disabled=true;
+    const {error} = await S.sb.from("links").insert({url, title, note});
+    S.busy=false;
+    if(error){ toast(errText(error)); $("#l-add").disabled=false; return; }
+    f.reset(); toast("Link added"); await loadLinks();
+  };
 }
 
 function topicCard(t){
@@ -241,6 +384,7 @@ function wireForm(){
 document.querySelector("nav").addEventListener("click", e=>{
   const b=e.target.closest("button[data-tab]"); if(!b) return;
   S.tab=b.dataset.tab; S.confirm=null; paint(); window.scrollTo({top:0});
+  if(S.tab==="links") loadLinks();
 });
 $("#signout").onclick = async () => { await S.sb.auth.signOut(); };
 $("#main").addEventListener("click", e=>{
@@ -260,11 +404,15 @@ $("#main").addEventListener("click", e=>{
     case "cancel": S.confirm=null; paint(); break;
     case "close": S.confirm=null; S.tab="closed"; act(()=>rpc("close_topic",{p_topic:t.id}), "Verdict revealed"); break;
     case "del": S.confirm=null; act(()=>rpc("delete_topic",{p_topic:t.id}), "Topic deleted"); break;
+    case "link-ask": S.confirm="link:"+b.dataset.id; paint(); break;
+    case "link-del": { const id=b.dataset.id; S.confirm=null;
+      S.sb.from("links").delete().eq("id", id).then(({error})=>{ if(error) toast(errText(error)); else toast("Link removed"); loadLinks(); }); break; }
   }
 });
 
 /* ---------- boot ---------- */
 if(!CFG.supabaseUrl || /YOUR-PROJECT/.test(CFG.supabaseUrl) || !window.supabase){ paint(); return; }
+S.invite = readInvite();
 S.sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
 S.sb.auth.onAuthStateChange((_evt, session) => {
   const id = session ? session.user.id : null;
@@ -274,6 +422,6 @@ S.sb.auth.onAuthStateChange((_evt, session) => {
   setTimeout(checkMembership, 0);
 });
 // Refresh every 8 seconds while the page is visible, and when you come back to it.
-setInterval(()=>{ if(S.phase==="app" && S.tab!=="new" && !document.hidden && !S.busy) loadAll(); }, 8000);
+setInterval(()=>{ if(S.phase==="app" && S.tab!=="new" && !document.hidden && !S.busy){ if(S.tab==="plan") paint(); else loadAll(); } }, 8000);
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && S.phase==="app" && S.tab!=="new") loadAll(); });
 })();
