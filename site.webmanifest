@@ -1,0 +1,11 @@
+{
+  "name": "Sherba Tribunal",
+  "short_name": "Sherba",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "theme_color": "#ED1B2F",
+  "background_color": "#F6ECD9",
+  "display": "browser"
+}
